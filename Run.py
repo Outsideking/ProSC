@@ -1,164 +1,141 @@
 """
-run.py - Client แบบไฟล์เดียว
-รวม TPSClip, HelpMe+ backend, API, module manager, heartbeat
-Client ID = apiSC
+run.py - BankSC Full Simulation Client + Web Dashboard
+สามารถสร้างบัญชี, ตรวจสอบ, โอนจ่าย, รับเงิน simulation
+พร้อมเว็บ dashboard
 """
 
-import time
 import threading
-import requests
-from flask import Flask, jsonify
+import time
+from flask import Flask, jsonify, render_template_string
 
 # -------------------------
-# Common Helpers
+# Common Helper
 # -------------------------
 class Common:
     @staticmethod
-    def log(message):
-        print(f"[LOG] {message}")
-
-    @staticmethod
-    def api_request(url, method="GET", data=None, headers=None):
-        try:
-            if method == "GET":
-                resp = requests.get(url, headers=headers)
-            else:
-                resp = requests.post(url, json=data, headers=headers)
-            return resp.json()
-        except Exception as e:
-            Common.log(f"API request error: {e}")
-            return None
+    def log(msg):
+        print(f"[BANKSC] {msg}")
 
 # -------------------------
-# TPSClip Module
+# Bank Simulation
 # -------------------------
-class TPSClipClient:
-    def __init__(self, api_key=None):
-        self.api_key = api_key
-        Common.log("TPSClipClient initialized")
+class BankAccount:
+    def __init__(self, country, name, balance=0):
+        self.country = country
+        self.name = name
+        self.balance = balance
+        Common.log(f"Account created: {self.name} ({self.country}) balance={self.balance}")
 
-    def connect(self):
-        if self.api_key:
-            Common.log(f"Connecting TPSClip API with key: {self.api_key}")
-        else:
-            Common.log("No API key, demo mode")
-        return True
+    def deposit(self, amount):
+        self.balance += amount
+        Common.log(f"Deposit {amount} -> {self.name} new balance={self.balance}")
 
-    def run(self):
-        Common.log("TPSClip module running...")
-        time.sleep(2)
-        Common.log("TPSClip task complete.")
+    def withdraw(self, amount):
+        if amount <= self.balance:
+            self.balance -= amount
+            Common.log(f"Withdraw {amount} -> {self.name} new balance={self.balance}")
+            return True
+        Common.log(f"Withdraw failed: insufficient funds in {self.name}")
+        return False
+
+class BankSystem:
+    def __init__(self):
+        self.accounts = {}
+
+    def create_account(self, country, name, balance=0):
+        acc = BankAccount(country, name, balance)
+        self.accounts[name] = acc
+        return acc
+
+    def transfer(self, from_acc, to_acc, amount):
+        if from_acc.withdraw(amount):
+            to_acc.deposit(amount)
+            Common.log(f"Transfer {amount} from {from_acc.name} to {to_acc.name} complete.")
+            return True
+        return False
 
 # -------------------------
-# HelpMe+ Backend
+# Bank Client Simulation
+# -------------------------
+bank = BankSystem()
+# ตัวอย่างบัญชีเริ่มต้น
+acc1 = bank.create_account("Thailand", "TH_Account1", 1000)
+acc2 = bank.create_account("USA", "US_Account1", 500)
+
+# -------------------------
+# Web Dashboard
 # -------------------------
 app = Flask(__name__)
-tasks_status = []
+
+INDEX_HTML = """
+<!DOCTYPE html>
+<html>
+<head>
+    <title>BankSC Dashboard</title>
+</head>
+<body>
+<h1>BankSC Accounts Dashboard</h1>
+<ul>
+    {% for name, balance in accounts.items() %}
+        <li>{{name}} ({{countries[name]}}): {{balance}}</li>
+    {% endfor %}
+</ul>
+
+<h2>Transfer Money</h2>
+<form action="/transfer" method="get">
+    From: <input type="text" name="from_acc"><br>
+    To: <input type="text" name="to_acc"><br>
+    Amount: <input type="number" name="amount"><br>
+    <input type="submit" value="Transfer">
+</form>
+</body>
+</html>
+"""
 
 @app.route("/")
 def index():
-    return jsonify(tasks_status)
+    accounts = {name: acc.balance for name, acc in bank.accounts.items()}
+    countries = {name: acc.country for name, acc in bank.accounts.items()}
+    return render_template_string(INDEX_HTML, accounts=accounts, countries=countries)
 
-@app.route("/log_task/<task>/<status>")
-def log_task(task, status):
-    tasks_status.append({"task": task, "status": status})
-    return jsonify({"success": True})
+@app.route("/transfer")
+def transfer():
+    from flask import request
+    from_acc = request.args.get("from_acc")
+    to_acc = request.args.get("to_acc")
+    amount = int(request.args.get("amount", 0))
+    if from_acc in bank.accounts and to_acc in bank.accounts:
+        success = bank.transfer(bank.accounts[from_acc], bank.accounts[to_acc], amount)
+        return jsonify({"success": success})
+    return jsonify({"success": False, "error": "Account not found"})
 
 def run_web():
     app.run(host="0.0.0.0", port=5000)
 
 # -------------------------
-# Module Manager
+# Auto Transaction Simulation
 # -------------------------
-class ModuleManager:
-    def __init__(self):
-        self.modules = []
-
-    def add_module(self, module):
-        self.modules.append(module)
-        Common.log(f"Module '{module.__class__.__name__}' added.")
-
-    def run_all(self):
-        for m in self.modules:
-            if hasattr(m, "run"):
-                m.run()
-
-# -------------------------
-# Server Client
-# -------------------------
-SERVER_URL = "http://YOUR_SERVER_ADDRESS:8000"
-
-class ServerClient:
-    def __init__(self, client_id="apiSC"):
-        self.client_id = client_id
-        self.running = True
-
-    def send_heartbeat(self):
-        while self.running:
-            try:
-                requests.post(f"{SERVER_URL}/heartbeat", json={"client_id": self.client_id})
-                Common.log("Heartbeat sent")
-            except Exception as e:
-                Common.log(f"Heartbeat error: {e}")
-            time.sleep(10)
-
-    def fetch_task(self):
-        try:
-            resp = requests.get(f"{SERVER_URL}/get_task?client_id={self.client_id}")
-            if resp.status_code == 200 and resp.json().get("task"):
-                return resp.json()["task"]
-        except Exception as e:
-            Common.log(f"Fetch task error: {e}")
-        return None
-
-# -------------------------
-# Auto-Updater (optional)
-# -------------------------
-def auto_update():
-    import subprocess, os
+def auto_transactions():
     while True:
-        Common.log("Checking for updates...")
-        if not os.path.exists(".git"):
-            subprocess.run(["git", "init"])
-            subprocess.run(["git", "remote", "add", "origin", "https://github.com/YOUR_USERNAME/apiSC.git"])
-        subprocess.run(["git", "pull", "origin", "main"])
-        subprocess.run(["pip", "install", "-r", "requirements.txt"])
-        Common.log("Update complete. Restarting...")
-        time.sleep(3600)  # เช็คทุกชั่วโมง
+        bank.transfer(acc1, acc2, 10)
+        bank.transfer(acc2, acc1, 5)
+        time.sleep(10)
 
 # -------------------------
-# Main Program
+# Main
 # -------------------------
 def main():
-    Common.log("run.py starting...")
+    Common.log("BankSC simulation starting...")
 
-    # TPSClip client
-    tps_client = TPSClipClient(api_key="YOUR_TPSCLIP_KEY")
-    tps_client.connect()
-
-    # Module manager
-    manager = ModuleManager()
-    manager.add_module(tps_client)
-
-    # Server client
-    server_client = ServerClient(client_id="apiSC")
-    threading.Thread(target=server_client.send_heartbeat, daemon=True).start()
-
-    # Web backend
+    # Run web dashboard
     threading.Thread(target=run_web, daemon=True).start()
+    Common.log("Web dashboard running at http://localhost:5000")
 
-    # Auto-updater (optional)
-    threading.Thread(target=auto_update, daemon=True).start()
+    # Run auto transaction simulation
+    threading.Thread(target=auto_transactions, daemon=True).start()
 
-    # Main loop
+    # Keep main thread alive
     while True:
-        task = server_client.fetch_task()
-        if task:
-            Common.log(f"Running server task: {task}")
-            manager.run_all()
-            requests.get(f"http://127.0.0.1:5000/log_task/{task}/completed")
-        else:
-            manager.run_all()
         time.sleep(5)
 
 if __name__ == "__main__":
