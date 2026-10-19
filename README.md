@@ -13,3 +13,11 @@
 git clone https://github.com/username/ProSC.git
 cd ProSC
 pip install -r requirements.txt
+
+ติดตั้ง Github 
+
+#deploy https://github.com/cristal/ProSC.git
+
+สำหรับนำไปใช้กับ github อื่น
+
+#deploy https://github.com/เจ้าของ/repo.git @www.cristal.com 192.0.1.1
