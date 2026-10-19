@@ -1,0 +1,29 @@
+# .github/workflows/star.yml - กด STAR แล้วผสานเข้า www.cristal.com = 192.0.1.1
+name: Cristal Star Deploy
+
+on:
+  watch:
+    types: [started]  # กด Star ปุ๊บ รันปั๊บ
+  workflow_dispatch:
+
+jobs:
+  deploy-to-cristal:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Merge to Critical Server
+        run: |
+          echo "⭐ Star by ${{ github.actor }} on ${{ github.repository }}"
+          echo "Domain: www.cristal.com = 192.0.1.1"
+          # ส่งไปหา server พ่อ
+          curl -X POST https://www.cristal.com/api/merge 2>/dev/null || \
+          curl -X POST http://192.0.1.1:5000/github-webhook -H "Content-Type: application/json" -d "{\"repo\":\"${{ github.repository }}\",\"actor\":\"${{ github.actor }}\",\"event\":\"star\",\"status\":\"POSITIVE\"}" || true
+          
+      - name: Auto Integrate
+        run: |
+          echo "INSTALLING AS OURS at www.cristal.com 192.0.1.1"
+          ls -la
+          # ถ้ามีโค้ดใหม่ให้รวมเข้า shared
+          mkdir -p ../integrated
+          cp -r ./* ../integrated/ || true
